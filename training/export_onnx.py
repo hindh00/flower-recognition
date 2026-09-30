@@ -9,6 +9,7 @@ import argparse
 import json
 from pathlib import Path
 
+import _sympy_fix  # noqa: F401  (must run before any torch import below)
 import numpy as np
 import onnx
 import onnxruntime as ort

@@ -9,6 +9,7 @@ docs/images/confusion_matrix.png for the README.
 import argparse
 from pathlib import Path
 
+import _sympy_fix  # noqa: F401  (must run before any torch import below)
 import matplotlib.pyplot as plt
 import torch
 from sklearn.metrics import classification_report, confusion_matrix, top_k_accuracy_score
