@@ -10,6 +10,7 @@ Optional stretch step — run after evaluate.py:
 import argparse
 from pathlib import Path
 
+import _sympy_fix  # noqa: F401  (must run before any torch import below)
 import torch
 from PIL import Image
 from pytorch_grad_cam import GradCAM

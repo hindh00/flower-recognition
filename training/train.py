@@ -13,6 +13,7 @@ import argparse
 import time
 from pathlib import Path
 
+import _sympy_fix  # noqa: F401  (must run before any torch import below)
 import timm
 import torch
 import torch.nn as nn

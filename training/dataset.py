@@ -12,6 +12,7 @@ import json
 import ssl
 from pathlib import Path
 
+import _sympy_fix  # noqa: F401  (must run before any torch import below)
 from PIL import Image
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset
