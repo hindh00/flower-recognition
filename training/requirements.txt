@@ -1,0 +1,11 @@
+# torch/torchvision are normally preinstalled (GPU-matched) on Colab — only
+# install them yourself for a local run. Everything else here is additive.
+torch
+torchvision
+timm
+scikit-learn
+scipy
+matplotlib
+onnx
+onnxruntime
+grad-cam
