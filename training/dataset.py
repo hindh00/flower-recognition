@@ -1,18 +1,13 @@
-"""Oxford 102 Flowers: download, a from-scratch stratified split, and
+"""Oxford 102 Flowers: download a stratified split, and
 transforms.
 
-We deliberately don't use the dataset's official train/val/test split — it's
-an inverted few-shot protocol (1,020 train / 1,020 val / 6,149 test images)
-meant for literature comparisons, not for training the best classifier we
-can. Instead we merge all 8,189 images and cut our own stratified 70/15/15
-split, which is the more realistic "build a good classifier" exercise.
 """
 
 import json
 import ssl
 from pathlib import Path
 
-import _sympy_fix  # noqa: F401  (must run before any torch import below)
+import _sympy_fix  # noqa: F401 
 from PIL import Image
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset

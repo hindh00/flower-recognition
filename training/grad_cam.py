@@ -1,7 +1,7 @@
 """Grad-CAM visualizations for a handful of test-set predictions (a mix of
-correct and incorrect ones makes the most interesting README material).
+correct and incorrect ones).
 
-Optional stretch step — run after evaluate.py:
+Stretch step — run after evaluate.py:
     python grad_cam.py --checkpoint checkpoints/best_model.pth \\
         --images data/flowers-102/jpg/image_00001.jpg data/flowers-102/jpg/image_00002.jpg \\
         --labels 0 1
@@ -10,7 +10,7 @@ Optional stretch step — run after evaluate.py:
 import argparse
 from pathlib import Path
 
-import _sympy_fix  # noqa: F401  (must run before any torch import below)
+import _sympy_fix  # noqa: F401
 import torch
 from PIL import Image
 from pytorch_grad_cam import GradCAM
@@ -34,6 +34,7 @@ def run_gradcam(
     backbone="efficientnet_b0",
     cat_to_name_path="cat_to_name.json",
     out_dir="../docs/images",
+    results_path="../docs/results.md",
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     class_names = load_class_names(cat_to_name_path)
@@ -41,15 +42,16 @@ def run_gradcam(
     model.load_state_dict(torch.load(checkpoint, map_location=device))
     model.eval()
 
-    # `conv_head` is the final 1x1 conv before global pooling in timm's
-    # EfficientNet implementation — the standard Grad-CAM target layer for
-    # this architecture family.
     cam = GradCAM(model=model, target_layers=[model.conv_head])
     _, eval_tf = get_transforms()
 
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
 
+    # Filenames are index-based (not class-name-based) so they stay stable
+    # across reruns with different example images — lets the README/results
+    # doc embed them by a fixed path instead of going stale every rerun.
+    rows = []
     for i, (path, true_label) in enumerate(zip(image_paths, true_labels)):
         image = Image.open(path).convert("RGB")
         input_tensor = eval_tf(image).unsqueeze(0).to(device)
@@ -60,11 +62,35 @@ def run_gradcam(
         rgb_img = denormalize(input_tensor.squeeze(0).cpu()).permute(1, 2, 0).numpy()
         visualization = show_cam_on_image(rgb_img, grayscale_cam, use_rgb=True)
 
-        status = "correct" if pred_label == true_label else "wrong"
-        fname = f"gradcam_{i:02d}_{status}_true-{class_names[true_label]}_pred-{class_names[pred_label]}.png"
-        fname = fname.replace(" ", "-")
+        fname = f"gradcam_{i:02d}.png"
         Image.fromarray(visualization).save(out_path / fname)
-        print(f"Saved {out_path / fname}")
+        status = "correct" if pred_label == true_label else "WRONG"
+        rows.append((fname, class_names[true_label], class_names[pred_label], status))
+        print(f"Saved {out_path / fname}  (true={class_names[true_label]}, pred={class_names[pred_label]}, {status})")
+
+    if results_path:
+        _append_gradcam_section(Path(results_path), rows)
+
+
+def _append_gradcam_section(results_path: Path, rows) -> None:
+    """Appends (or replaces, if already present) a Grad-CAM section in
+    docs/results.md so all generated results live in one place."""
+    marker = "## Explainability (Grad-CAM)"
+    section_lines = [marker, "", "Heatmaps show which regions of the image most influenced the prediction.", ""]
+    for fname, true_name, pred_name, status in rows:
+        section_lines.append(f"**{status}** — true: `{true_name}`, predicted: `{pred_name}`")
+        section_lines.append("")
+        section_lines.append(f"![Grad-CAM {fname}](images/{fname})")
+        section_lines.append("")
+    new_section = "\n".join(section_lines).rstrip() + "\n"
+
+    existing = results_path.read_text() if results_path.exists() else ""
+    if marker in existing:
+        before = existing.split(marker)[0].rstrip() + "\n\n"
+    else:
+        before = existing.rstrip() + "\n\n" if existing else ""
+    results_path.write_text(before + new_section)
+    print(f"Updated {results_path} with the Grad-CAM section")
 
 
 if __name__ == "__main__":
@@ -73,7 +99,8 @@ if __name__ == "__main__":
     parser.add_argument("--backbone", default="efficientnet_b0")
     parser.add_argument("--cat-to-name", default="cat_to_name.json")
     parser.add_argument("--out-dir", default="../docs/images")
+    parser.add_argument("--results-path", default="../docs/results.md")
     parser.add_argument("--images", nargs="+", required=True, help="Paths to sample images")
     parser.add_argument("--labels", nargs="+", type=int, required=True, help="True label indices (0-indexed)")
     args = parser.parse_args()
-    run_gradcam(args.images, args.labels, args.checkpoint, args.backbone, args.cat_to_name, args.out_dir)
+    run_gradcam(args.images, args.labels, args.checkpoint, args.backbone, args.cat_to_name, args.out_dir, args.results_path)

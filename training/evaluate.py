@@ -1,7 +1,5 @@
 """Test-set evaluation: top-1/top-5 accuracy, a full per-class report, a
-confusion-matrix heatmap, and a "most confused pairs" table (the full
-102x102 matrix isn't readable at a glance). Writes docs/results.md and
-docs/images/confusion_matrix.png for the README.
+confusion-matrix heatmap, and a "most confused pairs" table
 
     python evaluate.py --checkpoint checkpoints/best_model.pth
 """
@@ -9,7 +7,7 @@ docs/images/confusion_matrix.png for the README.
 import argparse
 from pathlib import Path
 
-import _sympy_fix  # noqa: F401  (must run before any torch import below)
+import _sympy_fix  # noqa: F401
 import matplotlib.pyplot as plt
 import torch
 from sklearn.metrics import classification_report, confusion_matrix, top_k_accuracy_score

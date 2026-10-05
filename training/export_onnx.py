@@ -9,7 +9,7 @@ import argparse
 import json
 from pathlib import Path
 
-import _sympy_fix  # noqa: F401  (must run before any torch import below)
+import _sympy_fix  # noqa: F401
 import numpy as np
 import onnx
 import onnxruntime as ort
@@ -44,12 +44,23 @@ def export(
         dynamic_axes={"input": {0: "batch"}, "logits": {0: "batch"}},
         opset_version=opset,
     )
-    onnx.checker.check_model(str(out_path))
-    print(f"Exported ONNX model to {out_path}")
 
-    # Parity check: PyTorch vs ONNX Runtime on several random inputs. If
-    # this assertion ever fails, do not deploy the model — something in the
-    # export (op support, opset mismatch) silently changed the math.
+    # Some torch.onnx export paths default to writing weights to a separate
+    # `<name>.onnx.data` file instead of embedding them in the .onnx file
+    # itself. That's easy to forget to commit/deploy — predict.py only ever
+    # loads the single .onnx file, so a split export silently ships a model
+    # with no weights. Reload (pulling in any external data) and resave as
+    # one self-contained file regardless of which path torch took.
+    model_proto = onnx.load(str(out_path), load_external_data=True)
+    onnx.save_model(model_proto, str(out_path), save_as_external_data=False)
+    stray_data_file = Path(f"{out_path}.data")
+    if stray_data_file.exists():
+        stray_data_file.unlink()
+
+    onnx.checker.check_model(str(out_path))
+    print(f"Exported ONNX model to {out_path} (single self-contained file, {out_path.stat().st_size / 1e6:.1f} MB)")
+
+    # Parity check: PyTorch vs ONNX Runtime on several random inputs.
     session = ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
     input_name = session.get_inputs()[0].name
     with torch.no_grad():
