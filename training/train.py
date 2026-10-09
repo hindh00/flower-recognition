@@ -10,6 +10,7 @@ Run from Colab (T4 GPU, free tier) or locally with a CUDA GPU:
 """
 
 import argparse
+import json
 import time
 from pathlib import Path
 
@@ -88,6 +89,7 @@ def train(
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
     best_val_acc = 0.0
+    history = []  # per-epoch metrics across both stages, for plotting train-vs-val curves later
 
     def maybe_save(val_acc):
         nonlocal best_val_acc
@@ -103,6 +105,9 @@ def train(
         train_loss, train_acc = run_epoch(model, loaders["train"], criterion, optimizer, device, train=True, scaler=scaler)
         val_loss, val_acc = run_epoch(model, loaders["val"], criterion, optimizer, device, train=False)
         maybe_save(val_acc)
+        history.append(
+            {"stage": "warmup", "epoch": epoch + 1, "train_loss": train_loss, "train_acc": train_acc, "val_loss": val_loss, "val_acc": val_acc}
+        )
         print(
             f"[warmup {epoch + 1}/{warmup_epochs}] train_loss={train_loss:.4f} train_acc={train_acc:.4f} "
             f"val_loss={val_loss:.4f} val_acc={val_acc:.4f} ({time.time() - t0:.1f}s)"
@@ -118,10 +123,16 @@ def train(
         val_loss, val_acc = run_epoch(model, loaders["val"], criterion, optimizer, device, train=False)
         scheduler.step()
         maybe_save(val_acc)
+        history.append(
+            {"stage": "finetune", "epoch": epoch + 1, "train_loss": train_loss, "train_acc": train_acc, "val_loss": val_loss, "val_acc": val_acc}
+        )
         print(
             f"[finetune {epoch + 1}/{finetune_epochs}] train_loss={train_loss:.4f} train_acc={train_acc:.4f} "
             f"val_loss={val_loss:.4f} val_acc={val_acc:.4f} lr={scheduler.get_last_lr()[0]:.2e} ({time.time() - t0:.1f}s)"
         )
+
+    with open(out_path / "history.json", "w") as f:
+        json.dump(history, f, indent=2)
 
     print(f"\nBest val accuracy: {best_val_acc:.4f}  ->  {out_path / 'best_model.pth'}")
     return out_path / "best_model.pth"
