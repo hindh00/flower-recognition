@@ -12,6 +12,7 @@ Run from Colab (T4 GPU, free tier) or locally with a CUDA GPU:
 import argparse
 import json
 import time
+from collections import Counter
 from pathlib import Path
 
 import _sympy_fix  # noqa: F401  (must run before any torch import below)
@@ -27,6 +28,15 @@ from dataset import NUM_CLASSES, get_dataloaders
 
 def build_model(backbone="efficientnet_b0", num_classes=NUM_CLASSES, pretrained=True):
     return timm.create_model(backbone, pretrained=pretrained, num_classes=num_classes)
+
+
+def compute_class_weights(train_samples, num_classes=NUM_CLASSES):
+    """Inverse-frequency class weights so rare classes (as few as ~40 images)
+    aren't drowned out by common ones (250+) in the loss."""
+    counts = Counter(label for _, label in train_samples)
+    total = sum(counts.values())
+    weights = [total / (num_classes * counts.get(i, 1)) for i in range(num_classes)]
+    return torch.tensor(weights, dtype=torch.float32)
 
 
 def set_backbone_trainable(model, trainable: bool):
@@ -81,9 +91,17 @@ def train(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    loaders, _ = get_dataloaders(data_root, batch_size=batch_size)
+    # --- Original (no class weighting / no label smoothing) — uncomment these
+    # two lines and comment out the block below to go back to the old behavior:
+    # loaders, _ = get_dataloaders(data_root, batch_size=batch_size)
+    # criterion = nn.CrossEntropyLoss()
+
+    # --- Class-weighted loss + label smoothing ---
+    loaders, splits = get_dataloaders(data_root, batch_size=batch_size)
+    class_weights = compute_class_weights(splits["train"]).to(device)
+    criterion = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=0.1)
+
     model = build_model(backbone).to(device)
-    criterion = nn.CrossEntropyLoss()
     scaler = GradScaler(enabled=(device.type == "cuda"))
 
     out_path = Path(out_dir)
