@@ -44,14 +44,12 @@ def download_segmentations(root: str) -> Path:
     only fetches images/labels/splits, not this archive). Same flaky host
     as _download_with_ssl_fallback, so the same SSL-retry idiom applies.
 
-    NOTE: the extracted folder is expected to be `segim/segmim_00001.jpg`
-    etc., 1:1 index-matched with `flowers-102/jpg/image_00001.jpg`. Verify
-    this on the first real run (print a directory listing) before trusting
-    prepare_detection_data.py's index matching across all 8,189 images.
+    Extracts to `segmim/segmim_00001.jpg` etc., 1:1 index-matched with
+    `flowers-102/jpg/image_00001.jpg` (confirmed against a real extraction).
     """
     root = Path(root)
     base = root / "flowers-102"
-    seg_dir = base / "segim"
+    seg_dir = base / "segmim"
     if seg_dir.exists() and any(seg_dir.iterdir()):
         return seg_dir
 
