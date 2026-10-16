@@ -7,6 +7,7 @@ directory + dataset.yaml.
 
 import argparse
 import os
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -64,7 +65,13 @@ def build_yolo_dataset(data_root="data", out_dir=None, val_size=0.15, seed=42, m
         for img_path, (xc, yc, bw, bh) in split_pairs:
             link_path = img_dir / img_path.name
             if not link_path.exists():
-                os.symlink(img_path.resolve(), link_path)  # avoid duplicating ~330MB of jpgs
+                try:
+                    os.symlink(img_path.resolve(), link_path)  # avoid duplicating ~330MB of jpgs
+                except OSError:
+                    # Google Drive's FUSE mount doesn't support symlinks
+                    # (errno 95). Fall back to copying -- slower and uses
+                    # more disk, but still correct.
+                    shutil.copy2(img_path, link_path)
             (lbl_dir / f"{img_path.stem}.txt").write_text(f"0 {xc:.6f} {yc:.6f} {bw:.6f} {bh:.6f}\n")
 
     yaml_path = out_dir / "dataset.yaml"
