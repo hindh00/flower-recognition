@@ -4,7 +4,7 @@
  * and raw phone photos routinely exceed that.
  */
 export async function resizeImage(file: File, maxDimension = 1024, quality = 0.85): Promise<Blob> {
-  const bitmap = await createImageBitmap(file);
+  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
 
   const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
   const width = Math.round(bitmap.width * scale);

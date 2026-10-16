@@ -89,12 +89,19 @@ class FlowersDataset(Dataset):
 def get_transforms():
     train_tf = transforms.Compose(
         [
-            transforms.RandomResizedCrop(IMAGE_SIZE, scale=(0.7, 1.0)),
+            # scale goes down to 0.4 (not the original 0.7) so the model also
+            # learns from zoomed-out crops where the target flower only fills
+            # a small part of the frame — closer to real photos with
+            # background clutter or multiple blooms than the dataset's
+            # typical isolated close-ups.
+            transforms.RandomResizedCrop(IMAGE_SIZE, scale=(0.4, 1.0)),
             transforms.RandomHorizontalFlip(),
             transforms.RandomRotation(20),
             transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
             transforms.ToTensor(),
             transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+            # Simulates occlusion from overlapping leaves/other blooms.
+            transforms.RandomErasing(p=0.25, scale=(0.02, 0.15)),
         ]
     )
     eval_tf = transforms.Compose(

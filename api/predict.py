@@ -16,9 +16,11 @@ from PIL import Image
 
 MODEL_DIR = Path(__file__).parent / "model"
 IMAGE_SIZE = 224
+RESIZE_SHORT_SIDE = 256
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 MAX_BODY_BYTES = 4_500_000  # Vercel Functions cap request/response bodies at 4.5 MB
+LOW_CONFIDENCE_THRESHOLD = 0.5  # below this, the top prediction is shown as "not sure"
 
 # Loaded once at module scope so warm Fluid Compute instances reuse the
 # session across invocations instead of reloading the model every request.
@@ -30,21 +32,41 @@ with open(MODEL_DIR / "class_names.json") as f:
     _class_names = json.load(f)
 
 
-def preprocess(image_bytes: bytes) -> np.ndarray:
-    """Resize-256 / center-crop-224 + ImageNet normalization — matches the
-    eval-time transform used during training (see training/dataset.py)."""
-    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    w, h = image.size
-    scale = 256 / min(w, h)
-    image = image.resize((round(w * scale), round(h * scale)), Image.BILINEAR)
-    w, h = image.size
-    left, top = (w - IMAGE_SIZE) // 2, (h - IMAGE_SIZE) // 2
-    image = image.crop((left, top, left + IMAGE_SIZE, top + IMAGE_SIZE))
-
+def _to_tensor(image: Image.Image) -> np.ndarray:
     arr = np.asarray(image, dtype=np.float32) / 255.0
     arr = (arr - IMAGENET_MEAN) / IMAGENET_STD
-    arr = arr.transpose(2, 0, 1)[np.newaxis, ...]  # HWC -> NCHW
-    return arr.astype(np.float32)
+    return arr.transpose(2, 0, 1)  # HWC -> CHW
+
+
+def _five_crop(image: Image.Image, crop_size: int) -> list[Image.Image]:
+    """Center crop + 4 corner crops. Used as test-time augmentation so a
+    photo with multiple flowers or a cluttered background isn't judged on a
+    single, possibly off-center, crop."""
+    w, h = image.size
+    left_max, top_max = w - crop_size, h - crop_size
+    boxes = [
+        (0, 0),
+        (left_max, 0),
+        (0, top_max),
+        (left_max, top_max),
+        (left_max // 2, top_max // 2),  # center
+    ]
+    return [image.crop((l, t, l + crop_size, t + crop_size)) for l, t in boxes]
+
+
+def preprocess(image_bytes: bytes) -> np.ndarray:
+    """Resize-256 + 5-crop-224 (center + 4 corners) with ImageNet
+    normalization. The center crop alone matches the eval-time transform
+    used during training (see training/dataset.py); the corner crops are
+    test-time augmentation only, averaged over in predict_topk."""
+    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    w, h = image.size
+    scale = RESIZE_SHORT_SIDE / min(w, h)
+    image = image.resize((round(w * scale), round(h * scale)), Image.BILINEAR)
+
+    crops = _five_crop(image, IMAGE_SIZE)
+    batch = np.stack([_to_tensor(c) for c in crops])  # (5, 3, 224, 224)
+    return batch.astype(np.float32)
 
 
 def softmax(x: np.ndarray) -> np.ndarray:
@@ -54,11 +76,13 @@ def softmax(x: np.ndarray) -> np.ndarray:
 
 
 def predict_topk(image_bytes: bytes, k: int = 5):
-    input_tensor = preprocess(image_bytes)
-    logits = _session.run(None, {_input_name: input_tensor})[0]
-    probs = softmax(logits)[0]
+    input_batch = preprocess(image_bytes)
+    logits = _session.run(None, {_input_name: input_batch})[0]
+    probs = softmax(logits).mean(axis=0)  # average over the 5 crops
     top_idx = np.argsort(probs)[::-1][:k]
-    return [{"label": _class_names[i], "confidence": float(probs[i])} for i in top_idx]
+    predictions = [{"label": _class_names[i], "confidence": float(probs[i])} for i in top_idx]
+    low_confidence = bool(probs[top_idx[0]] < LOW_CONFIDENCE_THRESHOLD)
+    return predictions, low_confidence
 
 
 class handler(BaseHTTPRequestHandler):
@@ -73,8 +97,8 @@ class handler(BaseHTTPRequestHandler):
                 return
 
             image_bytes = self.rfile.read(content_length)
-            predictions = predict_topk(image_bytes)
-            self._send_json({"predictions": predictions})
+            predictions, low_confidence = predict_topk(image_bytes)
+            self._send_json({"predictions": predictions, "low_confidence": low_confidence})
         except Exception as exc:
             self._send_json({"error": str(exc)}, status=500)
 

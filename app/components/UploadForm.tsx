@@ -9,6 +9,7 @@ type Status = "idle" | "loading" | "done" | "error";
 export function UploadForm() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
+  const [lowConfidence, setLowConfidence] = useState(false);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -22,6 +23,7 @@ export function UploadForm() {
 
     setPreviewUrl(URL.createObjectURL(file));
     setPredictions([]);
+    setLowConfidence(false);
     setStatus("loading");
     setError(null);
 
@@ -37,6 +39,7 @@ export function UploadForm() {
       if (!res.ok) throw new Error(data.error ?? "Prediction failed");
 
       setPredictions(data.predictions);
+      setLowConfidence(Boolean(data.low_confidence));
       setStatus("done");
     } catch (err) {
       setStatus("error");
@@ -86,7 +89,7 @@ export function UploadForm() {
 
       {status === "loading" && <p className="text-sm text-neutral-500">Identifying...</p>}
       {status === "error" && <p className="text-sm text-red-600">{error}</p>}
-      {status === "done" && <PredictionResult predictions={predictions} />}
+      {status === "done" && <PredictionResult predictions={predictions} lowConfidence={lowConfidence} />}
     </div>
   );
 }

@@ -3,16 +3,28 @@ export type Prediction = {
   confidence: number;
 };
 
-export function PredictionResult({ predictions }: { predictions: Prediction[] }) {
+export function PredictionResult({
+  predictions,
+  lowConfidence,
+}: {
+  predictions: Prediction[];
+  lowConfidence?: boolean;
+}) {
   if (predictions.length === 0) return null;
   const top = predictions[0];
 
   return (
     <div className="w-full max-w-md space-y-4">
       <div className="text-center">
-        <p className="text-sm text-neutral-500">Predicted</p>
+        <p className="text-sm text-neutral-500">{lowConfidence ? "Not sure — closest match" : "Predicted"}</p>
         <p className="text-2xl font-semibold capitalize">{top.label}</p>
         <p className="text-sm text-neutral-500">{(top.confidence * 100).toFixed(1)}% confidence</p>
+        {lowConfidence && (
+          <p className="mt-2 text-xs text-amber-600 dark:text-amber-500">
+            The model isn&apos;t confident about this one — it may be a species outside its training set, or the
+            photo may have multiple flowers/a busy background. See other close matches below.
+          </p>
+        )}
       </div>
 
       <div className="space-y-2">
