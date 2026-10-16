@@ -52,6 +52,7 @@ data/
 *.pth
 *.pt
 checkpoints/
+runs/
 
 # keep the trained model artifacts used by the deployed API
 !api/model/*.onnx

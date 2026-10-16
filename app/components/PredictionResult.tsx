@@ -3,12 +3,19 @@ export type Prediction = {
   confidence: number;
 };
 
+export type Detection = {
+  box: [number, number, number, number];
+  confidence: number;
+};
+
 export function PredictionResult({
   predictions,
   lowConfidence,
+  detectionCount = 0,
 }: {
   predictions: Prediction[];
   lowConfidence?: boolean;
+  detectionCount?: number;
 }) {
   if (predictions.length === 0) return null;
   const top = predictions[0];
@@ -19,6 +26,11 @@ export function PredictionResult({
         <p className="text-sm text-neutral-500">{lowConfidence ? "Not sure — closest match" : "Predicted"}</p>
         <p className="text-2xl font-semibold capitalize">{top.label}</p>
         <p className="text-sm text-neutral-500">{(top.confidence * 100).toFixed(1)}% confidence</p>
+        {detectionCount > 1 && (
+          <p className="mt-2 text-xs text-neutral-500">
+            Detected {detectionCount} flowers — averaging predictions across all of them.
+          </p>
+        )}
         {lowConfidence && (
           <p className="mt-2 text-xs text-amber-600 dark:text-amber-500">
             The model isn&apos;t confident about this one — it may be a species outside its training set, or the

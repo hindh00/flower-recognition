@@ -5,9 +5,11 @@ transforms.
 
 import json
 import ssl
+import tarfile
+import urllib.request
 from pathlib import Path
 
-import _sympy_fix  # noqa: F401 
+import _sympy_fix  # noqa: F401
 from PIL import Image
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset
@@ -18,6 +20,7 @@ IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 IMAGE_SIZE = 224
 NUM_CLASSES = 102
+SEGMENTATION_URL = "https://www.robots.ox.ac.uk/~vgg/data/flowers/102/102segmentations.tgz"
 
 
 def _download_with_ssl_fallback(root: str) -> None:
@@ -33,6 +36,41 @@ def _download_with_ssl_fallback(root: str) -> None:
         )
         ssl._create_default_https_context = ssl._create_unverified_context
         Flowers102(root=root, split="train", download=True)
+
+
+def download_segmentations(root: str) -> Path:
+    """Downloads and extracts the Oxford 102 segmentation trimaps -- used
+    only to derive detector bounding boxes (torchvision's Flowers102 loader
+    only fetches images/labels/splits, not this archive). Same flaky host
+    as _download_with_ssl_fallback, so the same SSL-retry idiom applies.
+
+    NOTE: the extracted folder is expected to be `segim/segmim_00001.jpg`
+    etc., 1:1 index-matched with `flowers-102/jpg/image_00001.jpg`. Verify
+    this on the first real run (print a directory listing) before trusting
+    prepare_detection_data.py's index matching across all 8,189 images.
+    """
+    root = Path(root)
+    base = root / "flowers-102"
+    seg_dir = base / "segim"
+    if seg_dir.exists() and any(seg_dir.iterdir()):
+        return seg_dir
+
+    archive_path = base / "102segmentations.tgz"
+    base.mkdir(parents=True, exist_ok=True)
+    try:
+        urllib.request.urlretrieve(SEGMENTATION_URL, archive_path)
+    except Exception as exc:
+        print(
+            f"Standard download failed ({exc!r}); retrying with an unverified "
+            "SSL context (known robots.ox.ac.uk flakiness)."
+        )
+        ssl._create_default_https_context = ssl._create_unverified_context
+        urllib.request.urlretrieve(SEGMENTATION_URL, archive_path)
+
+    with tarfile.open(archive_path) as tf:
+        tf.extractall(base)
+    archive_path.unlink()
+    return seg_dir
 
 
 def load_all_samples(root: str):

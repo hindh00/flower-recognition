@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { resizeImage } from "@/app/lib/resizeImage";
-import { PredictionResult, type Prediction } from "@/app/components/PredictionResult";
+import { PredictionResult, type Detection, type Prediction } from "@/app/components/PredictionResult";
 
 type Status = "idle" | "loading" | "done" | "error";
 
@@ -10,6 +10,8 @@ export function UploadForm() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [lowConfidence, setLowConfidence] = useState(false);
+  const [detections, setDetections] = useState<Detection[]>([]);
+  const [previewAspectRatio, setPreviewAspectRatio] = useState<number | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -24,6 +26,8 @@ export function UploadForm() {
     setPreviewUrl(URL.createObjectURL(file));
     setPredictions([]);
     setLowConfidence(false);
+    setDetections([]);
+    setPreviewAspectRatio(null);
     setStatus("loading");
     setError(null);
 
@@ -40,6 +44,7 @@ export function UploadForm() {
 
       setPredictions(data.predictions);
       setLowConfidence(Boolean(data.low_confidence));
+      setDetections(Array.isArray(data.detections) ? data.detections : []);
       setStatus("done");
     } catch (err) {
       setStatus("error");
@@ -76,8 +81,36 @@ export function UploadForm() {
         }`}
       >
         {previewUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={previewUrl} alt="Selected flower" className="max-h-64 rounded-lg object-contain" />
+          // Wrapper sized to match the rendered <img>'s own box (via
+          // aspect-ratio) so the percentage-based detection overlays below
+          // line up with the actual photo instead of a letterboxed gap.
+          // Edge case accepted, not solved: very wide/panoramic photos can
+          // be clipped by the parent's max-width before aspect-ratio sizing
+          // fully resolves, throwing off the overlay slightly.
+          <div className="relative inline-block max-h-64 max-w-full" style={{ aspectRatio: previewAspectRatio ?? undefined }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={previewUrl}
+              alt="Selected flower"
+              className="h-full w-full rounded-lg object-contain"
+              onLoad={(e) => setPreviewAspectRatio(e.currentTarget.naturalWidth / e.currentTarget.naturalHeight)}
+            />
+            {detections.map((d, i) => {
+              const [x1, y1, x2, y2] = d.box;
+              return (
+                <div
+                  key={i}
+                  className="absolute rounded-sm border-2 border-emerald-400"
+                  style={{
+                    left: `${x1 * 100}%`,
+                    top: `${y1 * 100}%`,
+                    width: `${(x2 - x1) * 100}%`,
+                    height: `${(y2 - y1) * 100}%`,
+                  }}
+                />
+              );
+            })}
+          </div>
         ) : (
           <>
             <p className="text-sm font-medium">Drop a flower photo here, or click to choose one</p>
@@ -89,7 +122,9 @@ export function UploadForm() {
 
       {status === "loading" && <p className="text-sm text-neutral-500">Identifying...</p>}
       {status === "error" && <p className="text-sm text-red-600">{error}</p>}
-      {status === "done" && <PredictionResult predictions={predictions} lowConfidence={lowConfidence} />}
+      {status === "done" && (
+        <PredictionResult predictions={predictions} lowConfidence={lowConfidence} detectionCount={detections.length} />
+      )}
     </div>
   );
 }

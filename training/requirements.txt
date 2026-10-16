@@ -8,3 +8,4 @@ matplotlib
 onnx
 onnxruntime
 grad-cam
+ultralytics
