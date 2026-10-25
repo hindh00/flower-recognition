@@ -23,10 +23,22 @@ NUM_CLASSES = 102
 SEGMENTATION_URL = "https://www.robots.ox.ac.uk/~vgg/data/flowers/102/102segmentations.tgz"
 
 
+def _use_unverified_ssl() -> None:
+    """robots.ox.ac.uk intermittently fails SSL verification from hosted
+    notebooks and from local Python.org macOS installs missing root certs
+    (see pytorch/vision#8717). The usual
+    `ssl._create_default_https_context = ssl._create_unverified_context`
+    monkeypatch no longer affects urllib's default opener as of Python
+    3.14 -- installing a custom opener with an unverified context is what
+    actually works there (and still works on older versions)."""
+    urllib.request.install_opener(
+        urllib.request.build_opener(urllib.request.HTTPSHandler(context=ssl._create_unverified_context()))
+    )
+
+
 def _download_with_ssl_fallback(root: str) -> None:
-    """robots.ox.ac.uk intermittently fails torchvision's SSL verification
-    from hosted notebooks (see pytorch/vision#8717). Retry once with an
-    unverified context before giving up."""
+    """Retry once with an unverified SSL context before giving up -- see
+    _use_unverified_ssl()."""
     try:
         Flowers102(root=root, split="train", download=True)
     except Exception as exc:
@@ -34,7 +46,7 @@ def _download_with_ssl_fallback(root: str) -> None:
             f"Standard download failed ({exc!r}); retrying with an unverified "
             "SSL context (known robots.ox.ac.uk flakiness)."
         )
-        ssl._create_default_https_context = ssl._create_unverified_context
+        _use_unverified_ssl()
         Flowers102(root=root, split="train", download=True)
 
 
@@ -62,7 +74,7 @@ def download_segmentations(root: str) -> Path:
             f"Standard download failed ({exc!r}); retrying with an unverified "
             "SSL context (known robots.ox.ac.uk flakiness)."
         )
-        ssl._create_default_https_context = ssl._create_unverified_context
+        _use_unverified_ssl()
         urllib.request.urlretrieve(SEGMENTATION_URL, archive_path)
 
     with tarfile.open(archive_path) as tf:

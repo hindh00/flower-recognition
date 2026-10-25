@@ -60,7 +60,7 @@ def evaluate(
     cat_to_name_path="cat_to_name.json",
     out_dir="../docs",
 ):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     loaders, _ = get_dataloaders(data_root)
     class_names = load_class_names(cat_to_name_path)
 

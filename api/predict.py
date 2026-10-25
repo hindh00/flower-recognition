@@ -1,16 +1,14 @@
-"""Vercel Python Function: flower classification inference.
+"""
+Accepts a raw image and returns the top-5 predicted classes. Uses onnxruntime so the deployed bundle is small and fast.
 
-Accepts a raw image (POST body, produced by the frontend's client-side
-resize step) and returns the top-5 predicted classes. Uses onnxruntime
-rather than full PyTorch so the deployed bundle stays small and fast.
-
-Two-stage pipeline: a YOLO detector first locates flower region(s) in the
+Two-stage pipeline: a YOLO detector first locates flower regions in the
 photo (so a cluttered background or multiple blooms don't drown out the
 classifier), and each detected region is classified separately and
-aggregated. If the detector finds nothing -- or its model file isn't
-present at all -- this falls back to classifying the whole image via
-5-crop test-time augmentation, so the app still works without a trained
-detector.
+aggregated.
+
+If the detector finds nothing, or its model file isnt
+present at all, this falls back to classifying the whole image via
+5-crop test-time augmentation.
 """
 
 import io
@@ -27,16 +25,15 @@ IMAGE_SIZE = 224
 RESIZE_SHORT_SIDE = 256
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-MAX_BODY_BYTES = 4_500_000  # Vercel Functions cap request/response bodies at 4.5 MB
-LOW_CONFIDENCE_THRESHOLD = 0.5  # below this, the top prediction is shown as "not sure"
+MAX_BODY_BYTES = 4_500_000
+LOW_CONFIDENCE_THRESHOLD = 0.5
 
 DETECTOR_IMGSZ = 640
-DETECTOR_PAD_COLOR = 114  # Ultralytics' standard letterbox fill value
-BOX_PAD_FRAC = 0.15  # context padding around each detected box before classifying
-MAX_BOXES_TO_CLASSIFY = 5  # bounds latency/payload on busy, multi-flower photos
+DETECTOR_PAD_COLOR = 114
+BOX_PAD_FRAC = 0.15
+MAX_BOXES_TO_CLASSIFY = 5
 
-# Loaded once at module scope so warm Fluid Compute instances reuse the
-# session across invocations instead of reloading the model every request.
+# Loaded once at module scope
 _session = ort.InferenceSession(
     str(MODEL_DIR / "flower_model.onnx"), providers=["CPUExecutionProvider"]
 )
@@ -44,9 +41,8 @@ _input_name = _session.get_inputs()[0].name
 with open(MODEL_DIR / "class_names.json") as f:
     _class_names = json.load(f)
 
-# The detector is optional: if its ONNX file isn't present (e.g. not yet
-# trained/committed), detect_boxes() below returns [] and predict_topk()
-# falls back to whole-image classification -- the app still works.
+
+# falls back to whole-image classification if detector isnt present.
 try:
     _detector_session = ort.InferenceSession(
         str(MODEL_DIR / "flower_detector.onnx"), providers=["CPUExecutionProvider"]
@@ -64,10 +60,10 @@ def _to_tensor(image: Image.Image) -> np.ndarray:
     return arr.transpose(2, 0, 1)  # HWC -> CHW
 
 
+"""Center crop + 4 corner crops. Used as test-time augmentation,
+so a photo with multiple flowers or a cluttered background isn't judged on a
+single, possibly off-center crop"""
 def _five_crop(image: Image.Image, crop_size: int) -> list[Image.Image]:
-    """Center crop + 4 corner crops. Used as test-time augmentation so a
-    photo with multiple flowers or a cluttered background isn't judged on a
-    single, possibly off-center, crop."""
     w, h = image.size
     left_max, top_max = w - crop_size, h - crop_size
     boxes = [
@@ -75,7 +71,7 @@ def _five_crop(image: Image.Image, crop_size: int) -> list[Image.Image]:
         (left_max, 0),
         (0, top_max),
         (left_max, top_max),
-        (left_max // 2, top_max // 2),  # center
+        (left_max // 2, top_max // 2),
     ]
     return [image.crop((l, t, l + crop_size, t + crop_size)) for l, t in boxes]
 
@@ -92,10 +88,9 @@ def softmax(x: np.ndarray) -> np.ndarray:
     return e / e.sum(axis=-1, keepdims=True)
 
 
+"""Resizing to fit standard YOLO input, returns the canvas and the
+scale/offset needed to map detector-space boxes back to the original image"""
 def _letterbox(image: Image.Image, size: int):
-    """Resize preserving aspect ratio, pad to a size x size square -- the
-    standard YOLO input transform. Returns the canvas plus the scale/offset
-    needed to map detector-space boxes back to the original image."""
     w, h = image.size
     scale = min(size / w, size / h)
     nw, nh = round(w * scale), round(h * scale)
@@ -106,18 +101,16 @@ def _letterbox(image: Image.Image, size: int):
     return canvas, scale, pad_x, pad_y
 
 
+"""Returns [{"box": (x1, y1, x2, y2), "confidence": c}, ...] sorted by
+confidence desc, capped at MAX_BOXES_TO_CLASSIFY"""
 def detect_boxes(image: Image.Image) -> list[dict]:
-    """Returns [{"box": (x1, y1, x2, y2), "confidence": c}, ...] in the
-    ORIGINAL image's pixel coordinates, sorted by confidence desc, capped at
-    MAX_BOXES_TO_CLASSIFY. Empty list means "no detections" -- the signal
-    that triggers the whole-image fallback in predict_topk()."""
     if _detector_session is None:
         return []
 
     canvas, scale, pad_x, pad_y = _letterbox(image, DETECTOR_IMGSZ)
     arr = (np.asarray(canvas, dtype=np.float32) / 255.0).transpose(2, 0, 1)[np.newaxis, ...]
     output = _detector_session.run(None, {_detector_input_name: arr.astype(np.float32)})[0]
-    rows = output[0]  # (max_det, 6): [x1, y1, x2, y2, conf, cls] -- NMS already applied at export
+    rows = output[0]
 
     boxes = []
     for row in rows:
@@ -137,10 +130,8 @@ def detect_boxes(image: Image.Image) -> list[dict]:
     return boxes[:MAX_BOXES_TO_CLASSIFY]
 
 
+"""crops a detected box to IMAGE_SIZE x IMAGE_SIZE while preserving acpect ratio"""
 def _pad_and_letterbox_crop(image: Image.Image, box) -> np.ndarray:
-    """Crops a detected box (padded for context) and letterboxes it to
-    IMAGE_SIZE x IMAGE_SIZE -- preserves aspect ratio instead of stretching,
-    since the box is already a tight, detector-isolated flower region."""
     x1, y1, x2, y2 = box
     w, h = x2 - x1, y2 - y1
     pad_w, pad_h = w * BOX_PAD_FRAC, h * BOX_PAD_FRAC
@@ -172,10 +163,8 @@ def classify_from_boxes(image: Image.Image, boxes: list[dict], k: int):
     return predictions, low_confidence
 
 
+"""Fallback when the detector finds mothing"""
 def classify_whole_image_tta(image: Image.Image, k: int):
-    """Fallback when the detector finds nothing (or isn't available):
-    resize-256 + 5-crop-224 (center + 4 corners), averaged -- the original
-    whole-image test-time augmentation."""
     crops = _five_crop(_resize_short_side(image, RESIZE_SHORT_SIDE), IMAGE_SIZE)
     batch = np.stack([_to_tensor(c) for c in crops]).astype(np.float32)
     logits = _session.run(None, {_input_name: batch})[0]

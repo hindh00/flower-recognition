@@ -1,42 +1,42 @@
 """Derives YOLO-format single-class ("flower") bounding boxes from Oxford
 102's segmentation trimaps, then writes an Ultralytics-ready dataset
-directory + dataset.yaml.
-
-    python prepare_detection_data.py --data-root data --out-dir data/detection
-"""
+directory + dataset.yaml"""
 
 import argparse
-import os
-import shutil
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from scipy import ndimage
 from sklearn.model_selection import train_test_split
 
 from dataset import download_segmentations, load_all_samples
 
+BACKGROUND_RGB = np.array([0, 0, 254])
+BACKGROUND_TOLERANCE = 60
 
-def mask_to_bbox(mask_path, min_fg_fraction=0.01):
-    """Trimap -> normalized (xc, yc, w, h), or None if the mask is empty or
-    degenerate.
 
-    Oxford 102's trimaps encode background as blue-dominant and foreground
-    as red/white-dominant (Nilsback & Zisserman, 2007). `r > b` is a
-    first-pass heuristic -- verify it visually against real masks (see
-    notebooks/train_detector_flowers102.ipynb's "Verify mask-to-box
-    derivation" cell) before trusting it across all 8,189 images.
-    """
+"""Trimap -> list of normalized (xc, yc, w, h) boxes, one per connected foreground blob
+clearing min_fg_fraction of the image area.
+
+Each blob gets its own box instead of one box spanning all foreground
+pixels, so images with more than one bloom don't collapse into a single box covering both"""
+def mask_to_bboxes(mask_path, min_fg_fraction=0.01):
     mask = np.asarray(Image.open(mask_path).convert("RGB"), dtype=np.int16)
-    r, b = mask[..., 0], mask[..., 2]
-    fg = r > b
-    if fg.mean() < min_fg_fraction:
-        return None
-    ys, xs = np.nonzero(fg)
+    fg = np.linalg.norm(mask - BACKGROUND_RGB, axis=-1) > BACKGROUND_TOLERANCE
     h, w = mask.shape[:2]
-    x0, x1 = xs.min(), xs.max()
-    y0, y1 = ys.min(), ys.max()
-    return (x0 + x1) / 2 / w, (y0 + y1) / 2 / h, (x1 - x0) / w, (y1 - y0) / h
+    min_pixels = min_fg_fraction * h * w
+
+    labeled, n_components = ndimage.label(fg, structure=np.ones((3, 3)))
+    boxes = []
+    for component_id in range(1, n_components + 1):
+        ys, xs = np.nonzero(labeled == component_id)
+        if len(xs) < min_pixels:
+            continue
+        x0, x1 = xs.min(), xs.max()
+        y0, y1 = ys.min(), ys.max()
+        boxes.append(((x0 + x1) / 2 / w, (y0 + y1) / 2 / h, (x1 - x0) / w, (y1 - y0) / h))
+    return boxes
 
 
 def build_yolo_dataset(data_root="data", out_dir=None, val_size=0.15, seed=42, min_fg_fraction=0.01):
@@ -46,15 +46,17 @@ def build_yolo_dataset(data_root="data", out_dir=None, val_size=0.15, seed=42, m
 
     pairs = []
     skipped = 0
+    n_boxes = 0
     for img_path in image_paths:
         idx = img_path.stem.split("_")[1]  # "image_00001" -> "00001"
         mask_path = seg_dir / f"segmim_{idx}.jpg"
-        bbox = mask_to_bbox(mask_path, min_fg_fraction=min_fg_fraction)
-        if bbox is None:
+        boxes = mask_to_bboxes(mask_path, min_fg_fraction=min_fg_fraction)
+        if not boxes:
             skipped += 1
             continue
-        pairs.append((img_path, bbox))
-    print(f"Derived boxes for {len(pairs)}/{len(image_paths)} images ({skipped} skipped: empty/degenerate mask)")
+        pairs.append((img_path, boxes))
+        n_boxes += len(boxes)
+    print(f"Derived {n_boxes} boxes across {len(pairs)}/{len(image_paths)} images ({skipped} skipped: no foreground blob)")
 
     train_pairs, val_pairs = train_test_split(pairs, test_size=val_size, random_state=seed)
     for split_name, split_pairs in (("train", train_pairs), ("val", val_pairs)):
@@ -62,17 +64,12 @@ def build_yolo_dataset(data_root="data", out_dir=None, val_size=0.15, seed=42, m
         lbl_dir = out_dir / "labels" / split_name
         img_dir.mkdir(parents=True, exist_ok=True)
         lbl_dir.mkdir(parents=True, exist_ok=True)
-        for img_path, (xc, yc, bw, bh) in split_pairs:
+        for img_path, boxes in split_pairs:
             link_path = img_dir / img_path.name
             if not link_path.exists():
-                try:
-                    os.symlink(img_path.resolve(), link_path)  # avoid duplicating ~330MB of jpgs
-                except OSError:
-                    # Google Drive's FUSE mount doesn't support symlinks
-                    # (errno 95). Fall back to copying -- slower and uses
-                    # more disk, but still correct.
-                    shutil.copy2(img_path, link_path)
-            (lbl_dir / f"{img_path.stem}.txt").write_text(f"0 {xc:.6f} {yc:.6f} {bw:.6f} {bh:.6f}\n")
+                link_path.symlink_to(img_path.resolve())  # avoid duplicating ~330MB of jpgs
+            lines = [f"0 {xc:.6f} {yc:.6f} {bw:.6f} {bh:.6f}\n" for xc, yc, bw, bh in boxes]
+            (lbl_dir / f"{img_path.stem}.txt").write_text("".join(lines))
 
     yaml_path = out_dir / "dataset.yaml"
     yaml_path.write_text(f"path: {out_dir.resolve()}\ntrain: images/train\nval: images/val\nnames:\n  0: flower\n")

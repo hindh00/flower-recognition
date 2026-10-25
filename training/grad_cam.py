@@ -36,7 +36,7 @@ def run_gradcam(
     out_dir="../docs/images",
     results_path="../docs/results.md",
 ):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     class_names = load_class_names(cat_to_name_path)
     model = build_model(backbone, pretrained=False).to(device)
     model.load_state_dict(torch.load(checkpoint, map_location=device))

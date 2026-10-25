@@ -3,9 +3,9 @@
 
 Stage 1 warms up a fresh classifier head with the backbone frozen.
 Stage 2 unfreezes the whole network and fine-tunes end-to-end at a lower,
-cosine-annealed learning rate. Mixed precision is used automatically on GPU.
+cosine-annealed learning rate. Mixed precision is used automatically on CUDA
+GPUs (not available on MPS or CPU).
 
-Run from Colab (T4 GPU, free tier) or locally with a CUDA GPU:
     python train.py --backbone efficientnet_b0 --finetune-epochs 15
 """
 
@@ -88,7 +88,7 @@ def train(
     finetune_lr=1e-4,
     out_dir="checkpoints",
 ):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     print(f"Using device: {device}")
 
     # --- Original (no class weighting / no label smoothing) — uncomment these
