@@ -3,11 +3,7 @@
 
 Stage 1 warms up a fresh classifier head with the backbone frozen.
 Stage 2 unfreezes the whole network and fine-tunes end-to-end at a lower,
-cosine-annealed learning rate. Mixed precision is used automatically on CUDA
-GPUs (not available on MPS or CPU).
-
-    python train.py --backbone efficientnet_b0 --finetune-epochs 15
-"""
+cosine-annealed learning rate."""
 
 import argparse
 import json
@@ -15,7 +11,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-import _sympy_fix  # noqa: F401  (must run before any torch import below)
+import _sympy_fix
 import timm
 import torch
 import torch.nn as nn
@@ -30,18 +26,17 @@ def build_model(backbone="efficientnet_b0", num_classes=NUM_CLASSES, pretrained=
     return timm.create_model(backbone, pretrained=pretrained, num_classes=num_classes)
 
 
+"""Inverse-frequency class weights so rare classes aren't drowned out by common ones in the loss."""
 def compute_class_weights(train_samples, num_classes=NUM_CLASSES):
-    """Inverse-frequency class weights so rare classes (as few as ~40 images)
-    aren't drowned out by common ones (250+) in the loss."""
     counts = Counter(label for _, label in train_samples)
     total = sum(counts.values())
     weights = [total / (num_classes * counts.get(i, 1)) for i in range(num_classes)]
     return torch.tensor(weights, dtype=torch.float32)
 
 
-def set_backbone_trainable(model, trainable: bool):
-    """Freezes/unfreezes everything except the final classifier layer, which
+"""Freezes/unfreezes everything except the final classifier layer, which
     stays trainable in both stages."""
+def set_backbone_trainable(model, trainable: bool):
     classifier_param_names = {name for name, _ in model.named_parameters() if "classifier" in name or "fc" in name or "head" in name}
     for name, param in model.named_parameters():
         param.requires_grad = trainable or name in classifier_param_names
@@ -91,8 +86,7 @@ def train(
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    # --- Original (no class weighting / no label smoothing) — uncomment these
-    # two lines and comment out the block below to go back to the old behavior:
+    # --- Original (no class weighting / no label smoothing)
     # loaders, _ = get_dataloaders(data_root, batch_size=batch_size)
     # criterion = nn.CrossEntropyLoss()
 

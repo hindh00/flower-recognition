@@ -43,7 +43,17 @@ Per-class image counts range from ~40 to 250+ — genuine class imbalance in the
 
 ## Explainability
 
-Grad-CAM heatmaps showing which pixels the model actually weighs for a given prediction, including real misclassifications (not just easy correct cases) — see the [full gallery in docs/results.md](docs/results.md#explainability-grad-cam).
+**Classifier:**
+- **Grad-CAM** — heatmaps showing which pixels the model actually weighs for a given prediction, including real misclassifications (not just easy correct cases). See [`training/grad_cam.py`](training/grad_cam.py).
+- **Integrated Gradients / SmoothGrad** (via [captum](https://captum.ai/)) — finer-grained, pixel-level attribution than Grad-CAM's coarse conv-layer regions. See [`training/integrated_gradients.py`](training/integrated_gradients.py).
+- **t-SNE embeddings** — a dataset-level view of class separability: classes that cluster together in the model's feature space are the ones that show up in the "most confused pairs" table. See [`training/embedding_viz.py`](training/embedding_viz.py).
+- **Confidence calibration** — a reliability diagram and Expected Calibration Error (ECE), answering "should I trust this confidence score?" rather than "why this class?". See [`training/calibration.py`](training/calibration.py).
+
+**Detector:**
+- **EigenCAM** — adapts CAM-style heatmaps to the detector by reading activations from the layer right before the detection head, with no per-box gradient target needed. See [`training/grad_cam_detector.py`](training/grad_cam_detector.py).
+- **D-RISE** — model-agnostic, perturbation-based saliency for a specific detected box (masks random regions and weights each by how well it preserved that detection). See [`training/drise_detector.py`](training/drise_detector.py).
+
+See the [full gallery in docs/results.md](docs/results.md#explainability-grad-cam).
 
 ## Challenges & decisions
 
@@ -105,6 +115,26 @@ python grad_cam.py --checkpoint checkpoints/best_model.pth \
     --labels 12 47
 ```
 
+**Integrated Gradients / SmoothGrad** (optional) — same calling convention as Grad-CAM, finer-grained pixel attribution:
+
+```bash
+python integrated_gradients.py --checkpoint checkpoints/best_model.pth \
+    --images path/to/img1.jpg path/to/img2.jpg \
+    --labels 12 47
+```
+
+**t-SNE embeddings** (optional) — no image args needed, runs over the whole test set:
+
+```bash
+python embedding_viz.py --checkpoint checkpoints/best_model.pth
+```
+
+**Confidence calibration** (optional) — reliability diagram + ECE over the whole test set:
+
+```bash
+python calibration.py --checkpoint checkpoints/best_model.pth
+```
+
 **Export to ONNX** — for the deployed API; asserts PyTorch/ONNX output parity before writing the file:
 
 ```bash
@@ -112,7 +142,17 @@ python export_onnx.py --checkpoint checkpoints/best_model.pth
 # -> ../api/model/flower_model.onnx + ../api/model/class_names.json
 ```
 
-All four scripts take `--backbone` / `--checkpoint` / path overrides — run any of them with `--help` for the full flag list.
+All of the above take `--backbone` / `--checkpoint` / path overrides — run any of them with `--help` for the full flag list.
+
+**Detector explainability** (optional, run after `train_detector.py`) — EigenCAM and D-RISE against the YOLO checkpoint directly (not the ONNX export):
+
+```bash
+python grad_cam_detector.py --checkpoint runs/detect/flower_detector/weights/best.pt \
+    --images data/detection/images/val/image_00001.jpg
+
+python drise_detector.py --checkpoint runs/detect/flower_detector/weights/best.pt \
+    --images data/detection/images/val/image_00001.jpg
+```
 
 ### Run the web app locally
 
@@ -129,7 +169,7 @@ Import the repo into [Vercel](https://vercel.com/new) — it auto-detects the Ne
 
 ## Tech stack
 
-- **Training**: PyTorch, [`timm`](https://github.com/huggingface/pytorch-image-models), scikit-learn, [pytorch-grad-cam](https://github.com/jacobgil/pytorch-grad-cam) — run on Google Colab's free T4 GPU
+- **Training**: PyTorch, [`timm`](https://github.com/huggingface/pytorch-image-models), scikit-learn, [pytorch-grad-cam](https://github.com/jacobgil/pytorch-grad-cam), [captum](https://captum.ai/) — run on Google Colab's free T4 GPU
 - **Serving**: ONNX Runtime (Python), Next.js 16 / React 19 / Tailwind CSS
 - **Hosting**: Vercel (Hobby/free tier)
 

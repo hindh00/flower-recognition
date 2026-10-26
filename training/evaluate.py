@@ -1,13 +1,10 @@
 """Test-set evaluation: top-1/top-5 accuracy, a full per-class report, a
-confusion-matrix heatmap, and a "most confused pairs" table
-
-    python evaluate.py --checkpoint checkpoints/best_model.pth
-"""
+confusion-matrix heatmap, and a "most confused pairs" table"""
 
 import argparse
 from pathlib import Path
 
-import _sympy_fix  # noqa: F401
+import _sympy_fix
 import matplotlib.pyplot as plt
 import torch
 from sklearn.metrics import classification_report, confusion_matrix, top_k_accuracy_score

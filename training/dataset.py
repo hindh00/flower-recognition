@@ -1,7 +1,5 @@
 """Oxford 102 Flowers: download a stratified split, and
-transforms.
-
-"""
+transforms"""
 
 import json
 import ssl
@@ -23,22 +21,15 @@ NUM_CLASSES = 102
 SEGMENTATION_URL = "https://www.robots.ox.ac.uk/~vgg/data/flowers/102/102segmentations.tgz"
 
 
+"""SSL workaround for robots.ox.ac.uk downloads"""
 def _use_unverified_ssl() -> None:
-    """robots.ox.ac.uk intermittently fails SSL verification from hosted
-    notebooks and from local Python.org macOS installs missing root certs
-    (see pytorch/vision#8717). The usual
-    `ssl._create_default_https_context = ssl._create_unverified_context`
-    monkeypatch no longer affects urllib's default opener as of Python
-    3.14 -- installing a custom opener with an unverified context is what
-    actually works there (and still works on older versions)."""
     urllib.request.install_opener(
         urllib.request.build_opener(urllib.request.HTTPSHandler(context=ssl._create_unverified_context()))
     )
 
 
+"""Download with SSL fallback."""
 def _download_with_ssl_fallback(root: str) -> None:
-    """Retry once with an unverified SSL context before giving up -- see
-    _use_unverified_ssl()."""
     try:
         Flowers102(root=root, split="train", download=True)
     except Exception as exc:
@@ -50,15 +41,8 @@ def _download_with_ssl_fallback(root: str) -> None:
         Flowers102(root=root, split="train", download=True)
 
 
+"""Downloads and extracts the Oxford 102 segmentation trimaps"""
 def download_segmentations(root: str) -> Path:
-    """Downloads and extracts the Oxford 102 segmentation trimaps -- used
-    only to derive detector bounding boxes (torchvision's Flowers102 loader
-    only fetches images/labels/splits, not this archive). Same flaky host
-    as _download_with_ssl_fallback, so the same SSL-retry idiom applies.
-
-    Extracts to `segmim/segmim_00001.jpg` etc., 1:1 index-matched with
-    `flowers-102/jpg/image_00001.jpg` (confirmed against a real extraction).
-    """
     root = Path(root)
     base = root / "flowers-102"
     seg_dir = base / "segmim"
@@ -83,16 +67,12 @@ def download_segmentations(root: str) -> Path:
     return seg_dir
 
 
+"""Download and merge all three official splits into one pool of (image_path, label) pairs"""
 def load_all_samples(root: str):
-    """Download (if needed) and merge all three official splits into one
-    pool of (image_path, label) pairs. Labels are 0-indexed."""
     _download_with_ssl_fallback(root)
     samples = []
     for split in ("train", "val", "test"):
         ds = Flowers102(root=root, split=split, download=False)
-        # torchvision stores per-sample file paths / labels on these
-        # attributes; if a future torchvision release renames them, fall
-        # back to iterating __getitem__ (slower, but always works).
         if hasattr(ds, "_image_files") and hasattr(ds, "_labels"):
             samples.extend(zip(ds._image_files, ds._labels))
         else:
@@ -137,11 +117,6 @@ class FlowersDataset(Dataset):
 def get_transforms():
     train_tf = transforms.Compose(
         [
-            # scale goes down to 0.4 (not the original 0.7) so the model also
-            # learns from zoomed-out crops where the target flower only fills
-            # a small part of the frame — closer to real photos with
-            # background clutter or multiple blooms than the dataset's
-            # typical isolated close-ups.
             transforms.RandomResizedCrop(IMAGE_SIZE, scale=(0.4, 1.0)),
             transforms.RandomHorizontalFlip(),
             transforms.RandomRotation(20),
@@ -181,10 +156,8 @@ def get_dataloaders(root, batch_size=32, num_workers=2, seed=42):
     return loaders, splits
 
 
+"""Load class names from the cat_to_name.json file"""
 def load_class_names(cat_to_name_path="cat_to_name.json"):
-    """Returns a 0-indexed list of flower names matching torchvision's
-    Flowers102 label encoding (cat_to_name.json keys are the original
-    1-indexed labels: key "1" -> list index 0)."""
     with open(cat_to_name_path) as f:
         cat_to_name = json.load(f)
     return [cat_to_name[str(i + 1)] for i in range(NUM_CLASSES)]

@@ -1,16 +1,9 @@
-"""Grad-CAM visualizations for a handful of test-set predictions (a mix of
-correct and incorrect ones).
-
-Stretch step — run after evaluate.py:
-    python grad_cam.py --checkpoint checkpoints/best_model.pth \\
-        --images data/flowers-102/jpg/image_00001.jpg data/flowers-102/jpg/image_00002.jpg \\
-        --labels 0 1
-"""
+"""Grad-CAM visualizations for a handful of test-set predictions."""
 
 import argparse
 from pathlib import Path
 
-import _sympy_fix  # noqa: F401
+import _sympy_fix
 import torch
 from PIL import Image
 from pytorch_grad_cam import GradCAM
@@ -48,9 +41,6 @@ def run_gradcam(
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
 
-    # Filenames are index-based (not class-name-based) so they stay stable
-    # across reruns with different example images — lets the README/results
-    # doc embed them by a fixed path instead of going stale every rerun.
     rows = []
     for i, (path, true_label) in enumerate(zip(image_paths, true_labels)):
         image = Image.open(path).convert("RGB")
@@ -72,10 +62,9 @@ def run_gradcam(
         _append_gradcam_section(Path(results_path), rows)
 
 
+"""Appends a Grad-CAM section in
+    docs/results.md so all generated results live in one place"""
 def _append_gradcam_section(results_path: Path, rows) -> None:
-    """Appends (or replaces, if already present) a Grad-CAM section in
-    docs/results.md so all generated results live in one place."""
-    marker = "## Explainability (Grad-CAM)"
     section_lines = [marker, "", "Heatmaps show which regions of the image most influenced the prediction.", ""]
     for fname, true_name, pred_name, status in rows:
         section_lines.append(f"**{status}** — true: `{true_name}`, predicted: `{pred_name}`")

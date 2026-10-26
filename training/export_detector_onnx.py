@@ -1,9 +1,6 @@
 """Exports the fine-tuned YOLO detector to ONNX with NMS baked in
 (ultralytics>=8.3.67 `nms=True`), then verifies the exported model's boxes
-match the PyTorch model's boxes on real sample images before trusting it.
-
-    python export_detector_onnx.py --checkpoint runs/detect/flower_detector/weights/best.pt
-"""
+match the PyTorch model's boxes on real sample images before trusting it."""
 
 import argparse
 import glob
@@ -13,8 +10,8 @@ import numpy as np
 from ultralytics import YOLO
 
 
+"""Pairwise IoU between two (N, 4) xyxy box arrays."""
 def _box_iou(boxes_a, boxes_b):
-    """Pairwise IoU between two (N, 4) xyxy box arrays."""
     boxes_a = np.asarray(boxes_a, dtype=np.float32)
     boxes_b = np.asarray(boxes_b, dtype=np.float32)
     area_a = (boxes_a[:, 2] - boxes_a[:, 0]) * (boxes_a[:, 3] - boxes_a[:, 1])
@@ -28,11 +25,8 @@ def _box_iou(boxes_a, boxes_b):
     return inter / np.clip(union, 1e-9, None)
 
 
+"""Matches boxes between two sets using IoU."""
 def _match_boxes(boxes_a, boxes_b, iou_match_threshold=0.9):
-    """Greedily pairs each box in boxes_a with its best-IoU box in boxes_b
-    (if that IoU clears iou_match_threshold). Returns the unmatched indices
-    on each side -- what's left over once everything that's clearly "the
-    same detection" on both sides has been paired off."""
     if len(boxes_a) == 0 or len(boxes_b) == 0:
         return list(range(len(boxes_a))), list(range(len(boxes_b)))
     iou_matrix = _box_iou(boxes_a.xyxy.cpu().numpy(), boxes_b.xyxy.cpu().numpy())
@@ -59,19 +53,7 @@ def export(checkpoint="runs/detect/flower_detector/weights/best.pt",
     out_path.parent.mkdir(parents=True, exist_ok=True)
     exported.replace(out_path)
 
-    # Parity check against real validation images (not random tensors --
-    # needs to exercise real detection+NMS, not just matrix-multiply
-    # equivalence). Mirrors export_onnx.py's "don't ship a broken export"
-    # philosophy for the classifier.
-    #
-    # Boxes are matched by IoU rather than compared by raw count/order:
-    # when two blooms in an image have close confidence scores, tiny fp32
-    # differences between PyTorch and ONNX Runtime can be enough to swap
-    # their rank or tip one of them across the conf/NMS threshold on only
-    # one backend -- same real detections, different bookkeeping. That's
-    # normal cross-backend numerical noise, not a broken export. A box one
-    # backend confidently finds with no match at all on the other side is
-    # the real red flag.
+    # Parity check against real validation images
     onnx_model = YOLO(str(out_path))
     sample_paths = sorted(glob.glob(sample_glob))[:num_samples]
     assert sample_paths, f"No sample images found at {sample_glob}"
@@ -93,8 +75,6 @@ def export(checkpoint="runs/detect/flower_detector/weights/best.pt",
 
     # The serving code's expected output shape is (1, max_det, 6) =
     # [x1, y1, x2, y2, conf, cls], zero-padded for unused detection slots.
-    # Print it here so a mismatch is caught immediately, not discovered
-    # later as a silent wrong-shape bug in api/predict.py.
     import onnxruntime as ort
 
     session = ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])

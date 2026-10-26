@@ -1,9 +1,6 @@
 """Export the fine-tuned PyTorch checkpoint to ONNX for the deployed API,
 then verify the exported model's outputs match PyTorch's before trusting it
-in production.
-
-    python export_onnx.py --checkpoint checkpoints/best_model.pth
-"""
+in production."""
 
 import argparse
 import json
@@ -45,12 +42,6 @@ def export(
         opset_version=opset,
     )
 
-    # Some torch.onnx export paths default to writing weights to a separate
-    # `<name>.onnx.data` file instead of embedding them in the .onnx file
-    # itself. That's easy to forget to commit/deploy — predict.py only ever
-    # loads the single .onnx file, so a split export silently ships a model
-    # with no weights. Reload (pulling in any external data) and resave as
-    # one self-contained file regardless of which path torch took.
     model_proto = onnx.load(str(out_path), load_external_data=True)
     onnx.save_model(model_proto, str(out_path), save_as_external_data=False)
     stray_data_file = Path(f"{out_path}.data")
